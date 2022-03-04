@@ -68,12 +68,11 @@ class CatFeeder:
 
         return self
 
-    def review_user_interests(self) -> "CatFeeder":
+    def _map_post_hashtags(self, to: Literal["uid", "post_id"]) -> Dict[str, Set[str]]:
 
-        self.interests = self.interests.groupby("uid").agg(set).to_dict()["interest"]
-        self.users_write_about = (
-            self.posts[["uid", "hashtags"]]
-            .groupby("uid")
+        return (
+            self.posts[[to, "hashtags"]]
+            .groupby(to)
             .agg(set)["hashtags"]
             .apply(
                 lambda x: {
@@ -84,6 +83,12 @@ class CatFeeder:
             )
             .to_dict()
         )
+
+    def _map_users_and_posts_to_tags(self) -> "CatFeeder":
+
+        self.interests = self.interests.groupby("uid").agg(set).to_dict()["interest"]
+        self.users_write_about = self._map_post_hashtags(to="uid")
+        self.posts_are_about = self._map_post_hashtags(to="post_id")
 
         return self
 
@@ -97,12 +102,14 @@ class CatFeeder:
         Parameters
         ----------
         set_of_tags
-        is a dictionary of the form {id: {tag1, tag2, ..}}
+            is a dictionary of the form {ID: {tag1, tag2, ..}}
+        normalize:
+            normalize the output if True
 
         Returns
         -------
         tag_similarities
-            a dictionary {id1: {id2: {similarity between user1 and user2}}}
+            a dictionary of the form {ID1: {ID2: {similarity score between ID1 and ID2}}}
 
         """
 
@@ -161,7 +168,19 @@ class CatFeeder:
 
     def get_post_content_similarity(
         self, parts_of_speech: List[Literal["NOUN", "VERB"]] = ["NOUN"]
-    ):
+    ) -> DefaultDict[str, DefaultDict[str, float]]:
+        """
+        calculate similarity score for each two post texts
+
+        Parameters
+        ----------
+        parts_of_speech
+            ignore any other POS from the post texts except the ones on this list
+
+        Returns
+        -------
+        True or False
+        """
 
         self.posts["post_nouns"] = self.posts["text"].apply(
             lambda txt: {
@@ -192,7 +211,7 @@ class CatFeeder:
             normalize=True,
         )
 
-    def map_posts_to_their_parents(self):
+    def map_posts_to_their_parents(self) -> "CatFeeder":
 
         valid_post_ids = {
             pid for pid in self.posts["post_id"] if self._is_valid_post_id(pid)
@@ -211,7 +230,7 @@ class CatFeeder:
 
         return self
 
-    def review_data(self):
+    def review_data(self) -> "CatFeeder":
 
         """
         review data to see if there's anything worth knowing
