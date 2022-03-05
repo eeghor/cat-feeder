@@ -31,11 +31,16 @@ class CatFeeder:
         user_details_file: str = "data/users.csv",
         user_interests_file: str = "data/interest[1].csv",
         posts_file: str = "data/posts.csv",
+        min_user_similarity_score: float = 0.5,
     ) -> None:
 
-        self.users = pd.read_csv(user_details_file, parse_dates=["dob"])
-        self.interests = pd.read_csv(user_interests_file)
-        self.posts = pd.read_csv(posts_file, parse_dates=["post_time"])
+        self.user_details_file = user_details_file
+        self.user_interests_file = user_interests_file
+        self.posts_file = posts_file
+        self.min_user_similarity_score = min_user_similarity_score
+        self.users = pd.read_csv(self.user_details_file, parse_dates=["dob"])
+        self.interests = pd.read_csv(self.user_interests_file)
+        self.posts = pd.read_csv(self.posts_file, parse_dates=["post_time"])
 
     def _is_valid_id(self, post_id: Any) -> bool:
 
@@ -214,15 +219,18 @@ class CatFeeder:
         )
 
         for (id1, id2) in combinations(set_of_tags, 2):
-            if id1_tags := set_of_tags.get(id1, None):
-                if id2_tags := set_of_tags.get(id2, None):
-                    tag_similarities[id1][id2] = len(id1_tags & id2_tags)
-                    tag_similarities[id2][id1] = tag_similarities[id1][id2]
+            id1_tags = set_of_tags.get(id1, set())
+            id2_tags = set_of_tags.get(id2, set())
+            tag_similarities[id1][id2] = len(id1_tags & id2_tags)
+            tag_similarities[id2][id1] = tag_similarities[id1][id2]
 
         if normalize:
             tag_similarities = self._normalize_nested_dictionary_values(
                 tag_similarities
             )
+
+        if not set(set_of_tags) == set(tag_similarities):
+            print("some IDs are missing from simmilarity scores!")
 
         return tag_similarities
 
@@ -359,8 +367,64 @@ class CatFeeder:
             raise ValueError(f"customer's ID {uid} is invalid!")
 
         if not self.users["uid"].str.contains(uid).any():
-            raise Exception(f"sorry, we only serve customers from users.csv")
+            print(f"sorry, we only serve customers from users.csv. no feed for you")
+            return self
 
-        print(f"nice to see you, {uid}")
+        print(
+            f"nice to see you, {self.users.loc[self.users['uid']==uid, 'first_name'].squeeze()}"
+        )
+        print(current_time.strftime("%m/%d/%Y, %H:%M:%S"))
+
+        posts_to_show = []
+
+        # has this user posted anything?
+        this_users_posts = self.posts[self.posts["uid"] == uid]
+
+        similar_users = self.user_similarity.get(
+            uid, f"user ID {uid} is not in user similarity dictionary!"
+        )
+        most_similar_users = sorted(
+            [
+                (uid, similarity_score)
+                for uid, similarity_score in similar_users.items()
+                if similarity_score >= self.min_user_similarity_score
+            ],
+            key=lambda x: x[1],
+            reverse=True,
+        )
+
+        if this_users_posts.empty:
+            for similar_user in similar_users:
+                similar_users_id = simlar_user[0]
+                similar_users_posts = self.posts[self.posts["uid"] == similar_users_id]
+                if not similar_users_posts.empty:
+                    posts_to_show.append(
+                        similar_users_posts.sort_values(
+                            "post_time", ascending=False
+                        ).iloc[0]["post_id"]
+                    )
+
+                print(f"posts to show:", posts_to_show)
+
+        else:
+            this_users_posts.sort_values("post_time", ascending=False, inplace=True)
+            print(f"user has {len(this_users_posts):,} posts")
+
+            for post_id in this_users_posts["post_id"]:
+                similar_posts = self.post_similarity.get(
+                    post_id, f"post ID {post_id} is not in post similarity dictionary!"
+                )
+                print("similar posts sorted:")
+                print(
+                    sorted(
+                        [
+                            (pid, similarity_score)
+                            for pid, similarity_score in similar_posts.items()
+                            if similarity_score > 0.10
+                        ],
+                        key=lambda x: x[1],
+                        reverse=True,
+                    )
+                )
 
         return self
