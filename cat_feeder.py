@@ -1,7 +1,7 @@
 import pandas as pd  # type: ignore
 import string
 import re
-from typing import List, Any, Dict, DefaultDict, Literal, Set
+from typing import List, Any, Dict, DefaultDict, Literal, Set, Union
 import datetime
 import spacy
 from itertools import combinations, chain
@@ -32,12 +32,14 @@ class CatFeeder:
         user_interests_file: str = "data/interest[1].csv",
         posts_file: str = "data/posts.csv",
         min_user_similarity_score: float = 0.5,
+        min_post_similarity_score: float = 0.1,
     ) -> None:
 
         self.user_details_file = user_details_file
         self.user_interests_file = user_interests_file
         self.posts_file = posts_file
         self.min_user_similarity_score = min_user_similarity_score
+        self.min_post_similarity_score = min_post_similarity_score
         self.users = pd.read_csv(self.user_details_file, parse_dates=["dob"])
         self.interests = pd.read_csv(self.user_interests_file)
         self.posts = pd.read_csv(self.posts_file, parse_dates=["post_time"])
@@ -194,7 +196,9 @@ class CatFeeder:
         return self
 
     def get_tag_similarity_score(
-        self, set_of_tags: DefaultDict[str, Set[str]], normalize: bool = False
+        self,
+        set_of_tags: Union[Dict[str, Set[str]], DefaultDict[str, Set[str]]],
+        normalize: bool = False,
     ) -> DefaultDict[str, DefaultDict[str, float]]:
 
         """
@@ -277,7 +281,9 @@ class CatFeeder:
             self.posts_are_about, normalize=True
         )
 
-        self.post_similarity = defaultdict(lambda: defaultdict(float))
+        self.post_similarity: DefaultDict[str, DefaultDict[str, float]] = defaultdict(
+            lambda: defaultdict(float)
+        )
 
         for pid1 in self.post_text_similarity:
             for pid2 in self.post_tag_similarity[pid1]:
@@ -292,6 +298,15 @@ class CatFeeder:
                 ["post_id", "parent_id"]
             ].to_dict(orient="split")["data"]
         }
+
+        self.post_replies_count = (
+            self.posts[self.posts["parent_id"].apply(self._is_valid_id)][
+                ["post_id", "parent_id"]
+            ]
+            .groupby("parent_id")
+            .count()
+            .to_dict()["post_id"]
+        )
 
         # boost similarity for post family members
         for pid in self.post_similarity:
@@ -321,10 +336,6 @@ class CatFeeder:
             weight (importance) of demographic similarity
         interests_weight
             weight (importance) of interest similarity
-
-        Returns
-        -------
-        self
         """
 
         if sum([demographics_weight, interests_weight]) != 1:
@@ -350,7 +361,9 @@ class CatFeeder:
             normalize=True,
         )
 
-        self.user_similarity = defaultdict(lambda: defaultdict(float))
+        self.user_similarity: DefaultDict[str, DefaultDict[str, float]] = defaultdict(
+            lambda: defaultdict(float)
+        )
 
         for uid1 in self.demographic_similarity:
             for uid2 in self.demographic_similarity[uid1]:
@@ -378,25 +391,34 @@ class CatFeeder:
         posts_to_show = []
 
         # has this user posted anything?
-        this_users_posts = self.posts[self.posts["uid"] == uid]
+        this_users_posts_latest_to_oldest = self.posts[
+            self.posts["uid"] == uid
+        ].sort_values("post_time", ascending=False)
+        print(f"user has {len(this_users_posts_latest_to_oldest):,} posts")
 
-        similar_users = self.user_similarity.get(
-            uid, f"user ID {uid} is not in user similarity dictionary!"
-        )
-        most_similar_users = sorted(
-            [
-                (uid, similarity_score)
-                for uid, similarity_score in similar_users.items()
-                if similarity_score >= self.min_user_similarity_score
-            ],
-            key=lambda x: x[1],
-            reverse=True,
-        )
+        similar_users = self.user_similarity[uid]
 
-        if this_users_posts.empty:
+        if similar_users:
+
+            similar_users_most_to_least = sorted(
+                [
+                    (uid, similarity_score)
+                    for uid_, similarity_score in similar_users.items()
+                    if (similarity_score >= self.min_user_similarity_score)
+                    and (uid_ != uid)
+                ],
+                key=lambda x: x[1],
+                reverse=True,
+            )
+
+
+
+        # this user has no posts
+        if this_users_posts_latest_to_oldest.empty:
+
             for similar_user in similar_users:
-                similar_users_id = simlar_user[0]
-                similar_users_posts = self.posts[self.posts["uid"] == similar_users_id]
+
+                similar_users_posts = self.posts[self.posts["uid"] == similar_user[0]]
                 if not similar_users_posts.empty:
                     posts_to_show.append(
                         similar_users_posts.sort_values(
@@ -404,27 +426,27 @@ class CatFeeder:
                         ).iloc[0]["post_id"]
                     )
 
-                print(f"posts to show:", posts_to_show)
+            print(f"posts to show:", posts_to_show)
 
+        # this user does have some posts
         else:
-            this_users_posts.sort_values("post_time", ascending=False, inplace=True)
-            print(f"user has {len(this_users_posts):,} posts")
 
-            for post_id in this_users_posts["post_id"]:
-                similar_posts = self.post_similarity.get(
-                    post_id, f"post ID {post_id} is not in post similarity dictionary!"
-                )
-                print("similar posts sorted:")
-                print(
-                    sorted(
-                        [
-                            (pid, similarity_score)
-                            for pid, similarity_score in similar_posts.items()
-                            if similarity_score > 0.10
-                        ],
-                        key=lambda x: x[1],
-                        reverse=True,
+            for pid in this_users_posts_latest_to_oldest["post_id"]:
+                similar_posts = self.post_similarity.get(pid)
+
+                if similar_posts:
+                    print("similar posts sorted:")
+                    print(
+                        sorted(
+                            [
+                                (pid_, similarity_score)
+                                for pid_, similarity_score in similar_posts.items()
+                                if (similarity_score > self.min_post_similarity_score)
+                                and (pid_ != pid)
+                            ],
+                            key=lambda x: x[1],
+                            reverse=True,
+                        )
                     )
-                )
 
         return self
