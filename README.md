@@ -1,4 +1,4 @@
-![](README/cat-feeder.png)
+![](pictures/cat-feeder.png)
 
 A smart feed guided by semantic AI reads all new posts and promotes the ones it thinks you’d like. 
 
