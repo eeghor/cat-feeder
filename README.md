@@ -1,6 +1,6 @@
 ![](pictures/cat-feeder.png)
 
-#### A smart feed guided by semantic AI. You won't miss what matters.  
+#### ---------- A smart feed guided by semantic AI. You won't miss what matters ----------  
 
 How does it work? In short, `Cat Feeder` runs an efficient proprietory algorithm on a vast number of data points to figure out similar users and similar posts. 
 
@@ -28,7 +28,7 @@ import datetime
 from cat_feeder import CatFeeder
 
 cf = CatFeeder().feed(uid='f84-7a5-45-a9-91ef', 
-					  current_time=datetime.datetime.utcnow())
+                      current_time=datetime.datetime.utcnow())
 ```
 
 A list of posts IDs to show to the user is now available in `cf.posts_to_show` . Note that the list shows the more recommended posts first:
@@ -40,5 +40,12 @@ cf.posts_to_show
  '5858955c-68c4-4674-9fff-acd968eae9a4']
 
 ```
+
+### Selected Features
+
+* Full spam control - how many posts to recommend is up to you
+* If nothing stands out as worth seeing, let user explore new ideas by like-minded people
+* Time flies, things change, priorities shift. Our recommendations adjust
+
 
 
