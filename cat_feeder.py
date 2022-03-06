@@ -33,6 +33,7 @@ class CatFeeder:
         posts_file: str = "data/posts.csv",
         min_user_similarity_score: float = 0.5,
         min_post_similarity_score: float = 0.1,
+        max_posts_to_show: int = 3,
     ) -> None:
 
         self.user_details_file = user_details_file
@@ -40,6 +41,7 @@ class CatFeeder:
         self.posts_file = posts_file
         self.min_user_similarity_score = min_user_similarity_score
         self.min_post_similarity_score = min_post_similarity_score
+        self.max_posts_to_show = max_posts_to_show
         self.users = pd.read_csv(self.user_details_file, parse_dates=["dob"])
         self.interests = pd.read_csv(self.user_interests_file)
         self.posts = pd.read_csv(self.posts_file, parse_dates=["post_time"])
@@ -291,6 +293,7 @@ class CatFeeder:
                     self.post_text_similarity[pid1][pid2] * text_weight
                     + self.post_tag_similarity[pid1][pid2] * hashtag_weight
                 )
+                self.post_similarity[pid2][pid1] = self.post_similarity[pid1][pid2]
 
         self.post_id_to_parent_post_id = {
             _[0]: _[1]
@@ -388,7 +391,7 @@ class CatFeeder:
         )
         print(current_time.strftime("%m/%d/%Y, %H:%M:%S"))
 
-        posts_to_show = []
+        self.posts_to_show = []
 
         # has this user posted anything?
         this_users_posts_latest_to_oldest = self.posts[
@@ -400,7 +403,7 @@ class CatFeeder:
 
         if similar_users:
 
-            similar_users_most_to_least = sorted(
+            similar_other_users_most_to_least = sorted(
                 [
                     (uid, similarity_score)
                     for uid_, similarity_score in similar_users.items()
@@ -411,42 +414,73 @@ class CatFeeder:
                 reverse=True,
             )
 
-
-
         # this user has no posts
         if this_users_posts_latest_to_oldest.empty:
 
-            for similar_user in similar_users:
+            # find a user most similar to this one and grab his latest post
+            for similar_user_id, _ in similar_other_users_most_to_least:
 
-                similar_users_posts = self.posts[self.posts["uid"] == similar_user[0]]
+                similar_users_posts = self.posts[self.posts["uid"] == similar_user_id]
+
                 if not similar_users_posts.empty:
-                    posts_to_show.append(
+                    self.posts_to_show.append(
                         similar_users_posts.sort_values(
                             "post_time", ascending=False
                         ).iloc[0]["post_id"]
                     )
 
-            print(f"posts to show:", posts_to_show)
+                    if len(self.posts_to_show) == self.max_posts_to_show:
+                        break
 
         # this user does have some posts
         else:
+            for pid in set(this_users_posts_latest_to_oldest["post_id"]):
 
-            for pid in this_users_posts_latest_to_oldest["post_id"]:
+                # all posts similar to this one
                 similar_posts = self.post_similarity.get(pid)
 
                 if similar_posts:
-                    print("similar posts sorted:")
-                    print(
-                        sorted(
+
+                    similar_other_user_posts_most_to_least = sorted(
+                        [
+                            (pid_, similarity_score)
+                            for pid_, similarity_score in similar_posts.items()
+                            if (similarity_score > self.min_post_similarity_score)
+                            and (pid_ != pid)
+                        ],
+                        key=lambda x: x[1],
+                        reverse=True,
+                    )
+
+                    self.similar_other_user_posts_posted_ago = dict(
+                        self.posts[
+                            self.posts["post_id"].isin(
+                                {_[0] for _ in similar_other_user_posts_most_to_least}
+                            )
+                        ]
+                        .assign(
+                            posted_minutes_ago=lambda x: (
+                                current_time - x["post_time"]
+                            ).dt.seconds
+                            / 60
+                        )[["post_id", "posted_minutes_ago"]]
+                        .to_dict(orient="split")["data"]
+                    )
+
+                    self.posts_to_show = [
+                        pid
+                        for pid, _ in sorted(
                             [
-                                (pid_, similarity_score)
-                                for pid_, similarity_score in similar_posts.items()
-                                if (similarity_score > self.min_post_similarity_score)
-                                and (pid_ != pid)
+                                (
+                                    pid_,
+                                    similarity_score
+                                    / self.similar_other_user_posts_posted_ago[pid_],
+                                )
+                                for pid_, similarity_score in similar_other_user_posts_most_to_least
                             ],
                             key=lambda x: x[1],
                             reverse=True,
                         )
-                    )
+                    ][: self.max_posts_to_show]
 
         return self
