@@ -124,6 +124,18 @@ class CatFeeder:
 
         return dictionary
 
+    def _normalize_dictionary_values(
+        self, dictionary: Union[DefaultDict[str, float], Dict[str, float]]
+    ) -> Dict[str, float]:
+
+        """
+        make values in a dictionary add up to 1
+        """
+
+        sum_all_values = sum(dictionary.values())
+
+        return {key_: value_ / sum_all_values for key_, value_ in dictionary.items()}
+
     def _find_out_more_about_users(self) -> "CatFeeder":
 
         """
@@ -473,13 +485,25 @@ class CatFeeder:
                         .to_dict(orient="split")["data"]
                     )
 
+                    self.post_replies_count_normalised = (
+                        self._normalize_dictionary_values(self.post_replies_count)
+                    )
+
+                    # adjust similarity scores according to time passed since publication
+                    # and number of replies
                     self.posts_to_show = [
                         pid
                         for pid, _ in sorted(
                             [
                                 (
                                     pid_,
-                                    similarity_score
+                                    (
+                                        1
+                                        + self.post_replies_count_normalised.get(
+                                            pid_, 0
+                                        )
+                                    )
+                                    * similarity_score
                                     / self.similar_other_user_posts_posted_ago[pid_],
                                 )
                                 for pid_, similarity_score in similar_other_user_posts_most_to_least
@@ -489,7 +513,7 @@ class CatFeeder:
                         )
                     ][: self.max_posts_to_show]
 
-            # no posts relevant (similar) enough? show posts fro similar users then
+            # no posts relevant (similar) enough? show posts from similar users then
             if not self.posts_to_show:
                 self.posts_to_show = posts_from_similar_users
 

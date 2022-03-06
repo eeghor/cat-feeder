@@ -2,7 +2,7 @@
 
 #### --------------- A smart feed guided by semantic AI. You won't miss what matters --------------- 
 
-How does it work? In short, `Cat Feeder` runs an efficient proprietory algorithm on a vast number of data points to figure out similar users and similar posts. 
+How does it work? In short, `Cat Feeder` runs an efficient proprietary algorithm on a vast number of data points to figure out similar users and similar posts. 
 
 
 To determine to what extent any two **users are similar**, our algorithm makes use of the following key data points:
@@ -44,6 +44,7 @@ cf.posts_to_show
 ### Selected Features
 
 * Full spam control - how many posts to recommend is up to you
+* Smart prioritisation by engagement
 * If nothing stands out as worth seeing, let user explore new ideas by like-minded people
 * Time flies, things change, priorities shift. Our recommendations adjust
 
