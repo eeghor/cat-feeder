@@ -14,7 +14,8 @@ class testSomething(unittest.TestCase):
     def test_count_of_recommended_posts(self):
         cat_feeder = CatFeeder()
         recommended_post_list = cat_feeder.feed(
-            uid="eaf1456d-fe19-460b-9b98-ef860fe7b228", current_time=datetime.datetime.utcnow()
+            uid="eaf1456d-fe19-460b-9b98-ef860fe7b228",
+            current_time=datetime.datetime.utcnow(),
         ).posts_to_show
         self.assertEqual(len(recommended_post_list), cat_feeder.max_posts_to_show)
 

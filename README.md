@@ -1,6 +1,6 @@
 ![](pictures/cat-feeder.png)
 
-#### ---------- A smart feed guided by semantic AI. You won't miss what matters ----------  
+#### --------------- A smart feed guided by semantic AI. You won't miss what matters --------------- 
 
 How does it work? In short, `Cat Feeder` runs an efficient proprietory algorithm on a vast number of data points to figure out similar users and similar posts. 
 
