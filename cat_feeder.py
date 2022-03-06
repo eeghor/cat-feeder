@@ -24,6 +24,7 @@ class CatFeeder:
         )
     }
     DAYS_IN_A_YEAR = 365
+    SECONDS_IN_MINUTE = 60
     HYPHENS_IN_ID = 4
 
     def __init__(
@@ -46,22 +47,22 @@ class CatFeeder:
         self.interests = pd.read_csv(self.user_interests_file)
         self.posts = pd.read_csv(self.posts_file, parse_dates=["post_time"])
 
-    def _is_valid_id(self, post_id: Any) -> bool:
+    def _is_valid_id(self, some_id: Any) -> bool:
 
         """
         check if the supplied argument looks like a legit ID
 
         Parameters
         ----------
-        post_id
-            an argument that could be a valid ID
+        some_id
+          an argument that could be a valid ID
 
         Returns
         -------
         True if valid, False otherwise
 
         """
-        return len(str(post_id).split("-")) == (self.HYPHENS_IN_ID + 1)
+        return len(str(some_id).split("-")) == (self.HYPHENS_IN_ID + 1)
 
     def _map_post_hashtags(self, to: Literal["uid", "post_id"]) -> Dict[str, Set[str]]:
 
@@ -70,8 +71,8 @@ class CatFeeder:
 
         Parameters
         ----------
-        to:
-            uid or post_id
+        to
+          uid or post_id
 
         Returns
         -------
@@ -91,13 +92,6 @@ class CatFeeder:
             .to_dict()
         )
 
-    def _map_users_and_posts_to_tags(self) -> "CatFeeder":
-
-        self.users_write_about = self._map_post_hashtags(to="uid")
-        self.posts_are_about = self._map_post_hashtags(to="post_id")
-
-        return self
-
     def _normalize_nested_dictionary_values(
         self, dictionary: DefaultDict[str, DefaultDict[str, float]]
     ) -> DefaultDict[str, DefaultDict[str, float]]:
@@ -108,7 +102,7 @@ class CatFeeder:
         Parameters
         ----------
         dictionary
-            2-level dictionary
+          2-level dictionary
 
         Returns
         -------
@@ -130,48 +124,7 @@ class CatFeeder:
 
         return dictionary
 
-    def review_data(self) -> "CatFeeder":
-
-        """
-        review data to see if there's anything worth knowing
-
-        Parameters
-        ----------
-        none
-
-        Returns
-        -------
-        a dictionary {id1: {id2: {similarity between user1 and user2}}}
-
-        """
-        # are there any users that seem like the same person but appear with different IDs?
-        users_with_multiple_uid = len(
-            self.users.groupby(["first_name", "family_name", "dob"])
-            .count()
-            .query("uid > 1")
-        )
-        print(f"users with multiple UID: {users_with_multiple_uid:,}")
-
-        # are there any posts with multiple parents?
-        posts_with_many_parents = len(
-            self.posts[["post_id", "parent_id"]]
-            .groupby("post_id")
-            .nunique()
-            .query("parent_id > 1")
-        )
-        print(f"posts with many parents: {posts_with_many_parents:,}")
-
-        # are all post IDs valid?
-        valid_post_ids = {
-            pid for pid in self.posts["post_id"] if self._is_valid_id(pid)
-        }
-        print(
-            f'valid post IDs: {100*len(valid_post_ids)/self.posts["post_id"].nunique():.2f}%'
-        )
-
-        return self
-
-    def find_out_more_about_users(self) -> "CatFeeder":
+    def _find_out_more_about_users(self) -> "CatFeeder":
 
         """
         find out users age and gender; also an age group they fall into
@@ -182,9 +135,7 @@ class CatFeeder:
         ).apply(lambda x: gd.get_gender(x).gender)
         self.users["age_years"] = (
             self.users["dob"]
-            .apply(
-                lambda x: (datetime.datetime.utcnow() - x).days / self.DAYS_IN_A_YEAR
-            )
+            .apply(lambda x: (self.current_time - x).days / self.DAYS_IN_A_YEAR)
             .round()
         )
         self.users["age_group"] = self.users["age_years"].apply(
@@ -197,7 +148,7 @@ class CatFeeder:
 
         return self
 
-    def get_tag_similarity_score(
+    def _get_tag_similarity_score(
         self,
         set_of_tags: Union[Dict[str, Set[str]], DefaultDict[str, Set[str]]],
         normalize: bool = False,
@@ -209,9 +160,9 @@ class CatFeeder:
         Parameters
         ----------
         set_of_tags
-            is a dictionary of the form {ID: {tag1, tag2, ..}}
-        normalize:
-            normalize the output if True
+          is a dictionary of the form {ID: {tag1, tag2, ..}}
+        normalize
+          normalize the output if True
 
         Returns
         -------
@@ -240,7 +191,7 @@ class CatFeeder:
 
         return tag_similarities
 
-    def get_post_similarity_scores(
+    def _get_post_similarity_scores(
         self,
         parts_of_speech: List[Literal["NOUN", "VERB"]],
         text_weight: float = 0.80,
@@ -254,11 +205,16 @@ class CatFeeder:
         Parameters
         ----------
         parts_of_speech
-            ignore any other POS from the post texts except the ones on this list
+          ignore any other POS from the post texts except the ones on this list
+        text_weight
+          importance of text for similarity
+        hashtag_weight
+          importance of hashtags for similarity
+        family_boost
+          multiply similarity between two posts by this coefficient if they are family
+        family_min_similarity_score
+          similarity between two posts that are family can't be lower than this
 
-        Returns
-        -------
-        True or False
         """
 
         if sum([text_weight, hashtag_weight]) != 1:
@@ -270,7 +226,7 @@ class CatFeeder:
             }
         )
 
-        self.post_text_similarity = self.get_tag_similarity_score(
+        self.post_text_similarity = self._get_tag_similarity_score(
             self.posts[["post_id", "post_text_processed"]]
             .groupby("post_id")
             .agg(lambda x: set(chain.from_iterable(x)))
@@ -279,7 +235,7 @@ class CatFeeder:
         )
 
         self.posts_are_about = self._map_post_hashtags(to="post_id")
-        self.post_tag_similarity = self.get_tag_similarity_score(
+        self.post_tag_similarity = self._get_tag_similarity_score(
             self.posts_are_about, normalize=True
         )
 
@@ -326,7 +282,7 @@ class CatFeeder:
 
         return self
 
-    def get_user_similarity_scores(
+    def _get_user_similarity_scores(
         self, demographics_weight: float = 0.5, interests_weight: float = 0.5
     ) -> "CatFeeder":
 
@@ -346,7 +302,7 @@ class CatFeeder:
 
         self.interests = self.interests.groupby("uid").agg(set).to_dict()["interest"]
 
-        self.user_interest_similarity = self.get_tag_similarity_score(
+        self.user_interest_similarity = self._get_tag_similarity_score(
             self.interests,
             normalize=True,
         )
@@ -357,7 +313,7 @@ class CatFeeder:
             .apply(set)
         )
 
-        self.demographic_similarity = self.get_tag_similarity_score(
+        self.demographic_similarity = self._get_tag_similarity_score(
             self.users[["uid", "age_and_gender"]]
             .set_index("uid")
             .to_dict()["age_and_gender"],
@@ -377,7 +333,51 @@ class CatFeeder:
 
         return self
 
-    def feed(self, uid: str, current_time: datetime.datetime):
+    def review_data(self) -> "CatFeeder":
+
+        """
+        review data to see if there's anything worth knowing;
+        print findings
+
+        """
+        # are there any users that seem like the same person but appear with different IDs?
+        users_with_multiple_uid = len(
+            self.users.groupby(["first_name", "family_name", "dob"])
+            .count()
+            .query("uid > 1")
+        )
+        print(f"users with multiple UID: {users_with_multiple_uid:,}")
+
+        # are there any posts with multiple parents?
+        posts_with_many_parents = len(
+            self.posts[["post_id", "parent_id"]]
+            .groupby("post_id")
+            .nunique()
+            .query("parent_id > 1")
+        )
+        print(f"posts with many parents: {posts_with_many_parents:,}")
+
+        # are all post IDs valid?
+        valid_post_ids = {
+            pid for pid in self.posts["post_id"] if self._is_valid_id(pid)
+        }
+        print(
+            f'valid post IDs: {100*len(valid_post_ids)/self.posts["post_id"].nunique():.2f}%'
+        )
+
+        return self
+
+    def feed(self, uid: str, current_time: datetime.datetime) -> "CatFeeder":
+        """
+        decide which posts to feed to a user
+
+        Parameters
+        ----------
+        uid
+          an ID of this user who's supposed to be fed
+        current_time
+          timestamp when the user logs in (according to assignment rules, must be an argument)
+        """
 
         if not self._is_valid_id(uid):
             raise ValueError(f"customer's ID {uid} is invalid!")
@@ -386,10 +386,18 @@ class CatFeeder:
             print(f"sorry, we only serve customers from users.csv. no feed for you")
             return self
 
+        self.current_time = current_time
+
+        user_name = self.users.loc[self.users["uid"] == uid, "first_name"].squeeze()
+
+        print(f"nice to see you, {user_name} :)")
         print(
-            f"nice to see you, {self.users.loc[self.users['uid']==uid, 'first_name'].squeeze()}"
+            f"especially now when it's {self.current_time.strftime('%H:%M:%S %m/%d/%Y')}"
         )
-        print(current_time.strftime("%m/%d/%Y, %H:%M:%S"))
+
+        self._find_out_more_about_users()
+        self._get_user_similarity_scores()
+        self._get_post_similarity_scores(parts_of_speech=["NOUN"])
 
         self.posts_to_show = []
 
@@ -397,40 +405,38 @@ class CatFeeder:
         this_users_posts_latest_to_oldest = self.posts[
             self.posts["uid"] == uid
         ].sort_values("post_time", ascending=False)
-        print(f"user has {len(this_users_posts_latest_to_oldest):,} posts")
+        print(f"{user_name} has {len(this_users_posts_latest_to_oldest):,} post(s)")
 
         similar_users = self.user_similarity[uid]
 
-        if similar_users:
+        similar_other_users_most_to_least = sorted(
+            [
+                (uid, similarity_score)
+                for uid_, similarity_score in similar_users.items()
+                if (similarity_score >= self.min_user_similarity_score)
+                and (uid_ != uid)
+            ],
+            key=lambda x: x[1],
+            reverse=True,
+        )
 
-            similar_other_users_most_to_least = sorted(
-                [
-                    (uid, similarity_score)
-                    for uid_, similarity_score in similar_users.items()
-                    if (similarity_score >= self.min_user_similarity_score)
-                    and (uid_ != uid)
-                ],
-                key=lambda x: x[1],
-                reverse=True,
-            )
+        posts_from_similar_users = []
+
+        # take a user similar to this one and grab his latest post
+        for similar_user_id, _ in similar_other_users_most_to_least:
+            similar_users_posts = self.posts[self.posts["uid"] == similar_user_id]
+            if not similar_users_posts.empty:
+                posts_from_similar_users.append(
+                    similar_users_posts.sort_values("post_time", ascending=False).iloc[
+                        0
+                    ]["post_id"]
+                )
+                if len(posts_from_similar_users) == self.max_posts_to_show:
+                    break
 
         # this user has no posts
         if this_users_posts_latest_to_oldest.empty:
-
-            # find a user most similar to this one and grab his latest post
-            for similar_user_id, _ in similar_other_users_most_to_least:
-
-                similar_users_posts = self.posts[self.posts["uid"] == similar_user_id]
-
-                if not similar_users_posts.empty:
-                    self.posts_to_show.append(
-                        similar_users_posts.sort_values(
-                            "post_time", ascending=False
-                        ).iloc[0]["post_id"]
-                    )
-
-                    if len(self.posts_to_show) == self.max_posts_to_show:
-                        break
+            self.posts_to_show = posts_from_similar_users
 
         # this user does have some posts
         else:
@@ -462,7 +468,7 @@ class CatFeeder:
                             posted_minutes_ago=lambda x: (
                                 current_time - x["post_time"]
                             ).dt.seconds
-                            / 60
+                            / self.SECONDS_IN_MINUTE
                         )[["post_id", "posted_minutes_ago"]]
                         .to_dict(orient="split")["data"]
                     )
@@ -482,5 +488,9 @@ class CatFeeder:
                             reverse=True,
                         )
                     ][: self.max_posts_to_show]
+
+            # no posts relevant (similar) enough? show posts fro similar users then
+            if not self.posts_to_show:
+                self.posts_to_show = posts_from_similar_users
 
         return self
